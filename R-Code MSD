@@ -1,0 +1,478 @@
+#Figure 1 - MSD
+pacman::p_load(pacman, tidyverse, readr, dplyr, tidyr, rio, ggplot2, naniar,
+               nlme, lcmm, tableone, lattice, reshape2, data.table, scales, plyr, Hmisc,
+               tableone, kmed, survival, survminer, skimr, lattice, reshape2, grDevices, ggrepel,
+               hablar, mice, mixOmics, rstatix, e1071, moments, ggsci, ggridges,
+               viridis, colorspace, viridisLite, readxl)
+
+`%!in%` <- Negate(`%in%`)
+`%!like%` <- Negate(`%like%`)
+
+library(nortest)
+library(MASS)
+# Boxcox function of Joe
+boxcoxT <- function(MedX){
+  
+  MedLev <- MedX + 0.001
+  metabs <- data.frame(MedLev)
+  
+  fit <- lm(MedLev ~1, data=metabs)
+  z <- boxcox(fit, lambda = seq(-5,5, by=0.1), plotit=FALSE, data = metabs)
+  
+  lamda <- z$x[which.max(z$y)]
+  #print(paste("lambda:",lamda))
+  
+  if(lamda!=0){ metabs$MedLevT <- ((metabs$MedLev^lamda) -1 )/lamda }
+  if(lamda==0){ metabs$MedLevT <- log(metabs$MedLev) }
+  #hist(metabs$MedLevT)
+  
+  return(scale(metabs$MedLevT))
+  
+}
+
+
+
+setwd("G:/Mijn Drive/phd/PASC-immunity/MSD")
+
+# MSD ---------------------------------------------------------------------
+msd <- read_excel("msd.xlsx")
+msd$Group <- ifelse(msd$Group == "Sanquin_msd", "Sanquin", msd$Group)
+
+p_norm <- sapply(msd[,c(3:12)], shapiro.test)
+p_norm
+
+#impute with sqwuare root of 2 
+imputedset <- msd
+imputedset_long <- reshape2::melt(imputedset, id.vars=c("ID", "Group", "Group2"))
+
+imputedset_long$value2 <- NA
+imputedset_long <- imputedset_long %>%
+  group_by(variable) %>%
+  mutate(value2 = ifelse(is.na(value), as.numeric(min(value, na.rm = TRUE)) / sqrt(2), as.numeric(value))) %>%
+  ungroup()
+
+
+imputedset_long2 <- imputedset_long
+imputedset_long2[,5:6] <- apply(imputedset_long2[,5:6], 2, function(x) boxcoxT(x))
+imputedset_long2$value <- NULL
+imputedset_long_box <- imputedset_long2
+imputedset_wide_box <- imputedset_long2 %>%
+  pivot_wider(names_from = variable, values_from = value2)
+remove(imputedset, imputedset_long2)
+
+p_norm <- sapply(imputedset_wide_box[,c(4:13)], shapiro.test)
+p_norm 
+#almost all non-normal -> analyse with wilcox with non boxed values, except ifn beta
+imputedset_long$value <- NULL
+imputedset_wide<- imputedset_long %>%
+  pivot_wider(names_from = variable, values_from = value2)
+
+
+# make figures ------------------------------------------------------------
+
+#all group 
+imputedset_wide2 <- filter(imputedset_wide, imputedset_wide$Group == "non-hosp" | imputedset_wide$Group == "PASC" )
+imputedset_wide2$Group <- factor(imputedset_wide2$Group, levels =c("non-hosp", "PASC"))
+
+#PASC group
+imputedset_wide3 <- filter(imputedset_wide, !is.na(imputedset_wide$Group2))
+imputedset_wide3$Group2 <- factor(imputedset_wide3$Group2, levels =c("red", "grey", "yellow"))
+
+
+
+# IL1B --------------------------------------------------------------------
+IL1B_nh<- ggplot(data  = imputedset_wide2, aes(x = Group, y = IL1B)) +
+  geom_boxplot(aes(fill = Group), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values=c("#FFFFFF", "#7DC579"))+
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("IL1B")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  #scale_y_continuous(expand = c(0, 0), limits = c(0, 2.2))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10), labels = c("0.001", "0.01", "0.1", "1", "10")) +
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 0.9, xmin = 1, xmax = 2, tip_length = c(0.00, 0.00))
+IL1B_nh
+kruskal.test(IL1B ~ Group, data = imputedset_wide2)
+
+
+IL1B_PASC<- ggplot(data  = imputedset_wide3, aes(x = Group2, y = IL1B)) +
+  geom_boxplot(aes(fill = Group2), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group2), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values = c("#960000", "#595959", "#d49611")) + # Customize your colors here
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("IL1B")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  #scale_y_continuous(expand = c(0, 0), limits = c(0, 2.2))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10), labels = c("0.001", "0.01", "0.1", "1", "10")) +
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 0.7, xmin = 1, xmax = 1.8, tip_length = c(0.0, 0.0))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 0.7, xmin = 2.2, xmax = 3, tip_length = c(0.0, 0.0))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 1, xmin = 1, xmax = 3, tip_length = c(0.00, 0.00))
+IL1B_PASC
+
+kruskal.test(IL1B ~ Group2, data = imputedset_wide3)
+pairwise.wilcox.test(imputedset_wide3$IL1B, imputedset_wide3$Group2, p.adjust.method="BH")
+
+
+# IL6 --------------------------------------------------------------------
+IL6_nh<- ggplot(data  = imputedset_wide2, aes(x = Group, y = IL6)) +
+  geom_boxplot(aes(fill = Group), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values=c("#FFFFFF", "#7DC579"))+
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("IL6")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100")) +
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2, xmin = 1, xmax = 2, tip_length = c(0.00, 0.00))
+IL6_nh
+kruskal.test(IL6 ~ Group, data = imputedset_wide2)
+
+
+
+IL6_PASC<- ggplot(data  = imputedset_wide3, aes(x = Group2, y = IL6)) +
+  geom_boxplot(aes(fill = Group2), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group2), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values = c("#960000", "#595959", "#d49611")) + # Customize your colors here
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("IL6")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100")) +
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 1.6, xmin = 1, xmax = 1.8, tip_length = c(0.0, 0.0))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position =1.6, xmin = 2.2, xmax = 3, tip_length = c(0.0, 0.0))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 2, xmin = 1, xmax = 3, tip_length = c(0.00, 0.00))
+IL6_PASC
+
+kruskal.test(IL6 ~ Group2, data = imputedset_wide3)
+pairwise.wilcox.test(imputedset_wide3$IL6, imputedset_wide3$Group2, p.adjust.method="BH")
+
+
+
+
+
+# TNF --------------------------------------------------------------------
+TNF_nh<- ggplot(data  = imputedset_wide2, aes(x = Group, y = TNF)) +
+  geom_boxplot(aes(fill = Group), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values=c("#FFFFFF", "#6AA84F"))+
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("TNF")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100")) +
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2, xmin = 1, xmax = 2, tip_length = c(0.00, 0.00))
+TNF_nh
+kruskal.test(TNF ~ Group, data = imputedset_wide2)
+
+
+TNF_PASC<- ggplot(data  = imputedset_wide3, aes(x = Group2, y = TNF)) +
+  geom_boxplot(aes(fill = Group2), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group2), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values = c("#960000", "#595959", "#d49611")) + # Customize your colors here
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("TNF")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 1.5, xmin = 1, xmax = 1.8, tip_length = c(0.0, 0.0))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 1.5, xmin = 2.2, xmax = 3, tip_length = c(0.0, 0.0))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2, xmin = 1, xmax = 3, tip_length = c(0.00, 0.00))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))
+TNF_PASC
+
+kruskal.test(TNF ~ Group2, data = imputedset_wide3)
+pairwise.wilcox.test(imputedset_wide3$TNF, imputedset_wide3$Group2, p.adjust.method="BH")
+
+
+
+# GMCSF --------------------------------------------------------------------
+GMCSF_nh<- ggplot(data  = imputedset_wide2, aes(x = Group, y = GMCSF)) +
+  geom_boxplot(aes(fill = Group), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values=c("#FFFFFF", "#7DC579"))+
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("GMCSF")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))+
+  geom_signif(annotation = formatC("p=0.06", digits = 1), y_position = 1, xmin = 1, xmax = 2, tip_length = c(0.00, 0.00)) 
+GMCSF_nh
+kruskal.test(GMCSF ~ Group, data = imputedset_wide2)
+
+
+GMCSF_PASC<- ggplot(data  = imputedset_wide3, aes(x = Group2, y = GMCSF)) +
+  geom_boxplot(aes(fill = Group2), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group2), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values = c("#960000", "#595959", "#d49611")) + # Customize your colors here
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("GMCSF")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 1, xmin = 1, xmax = 1.8, tip_length = c(0.0, 0.0))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 1, xmin = 2.2, xmax = 3, tip_length = c(0.0, 0.0))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 1.5, xmin = 1, xmax = 3, tip_length = c(0.00, 0.00))
+GMCSF_PASC
+
+kruskal.test(GMCSF ~ Group2, data = imputedset_wide3)
+pairwise.wilcox.test(imputedset_wide3$GMCSF, imputedset_wide3$Group2, p.adjust.method="BH")
+
+
+
+# IFNg --------------------------------------------------------------------
+IFNg_nh<- ggplot(data  = imputedset_wide2, aes(x = Group, y = IFNg)) +
+  geom_boxplot(aes(fill = Group), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values=c("#FFFFFF", "#7DC579"))+
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("IFNg")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  #scale_y_continuous(expand = c(0, 0), limits = c(0, 135))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100, 1000), labels = c("0.001", "0.01", "0.1", "1", "10", "100", "1000"))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 3, xmin = 1, xmax = 2, tip_length = c(0.0, 0.00))
+IFNg_nh
+kruskal.test(IFNg ~ Group, data = imputedset_wide2)
+
+IFNg_PASC<- ggplot(data  = imputedset_wide3, aes(x = Group2, y = IFNg)) +
+  geom_boxplot(aes(fill = Group2), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group2), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values = c("#960000", "#595959", "#d49611")) +
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("IFNg")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100, 1000), labels = c("0.001", "0.01", "0.1", "1", "10", "100", "1000"))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2.5, xmin = 1, xmax = 1.8, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 3.2, xmin = 1, xmax = 3, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2.5, xmin = 2.2, xmax = 3, tip_length = c(0.00, 0.00))
+IFNg_PASC
+
+kruskal.test(IFNg ~ Group2, data = imputedset_wide3)
+pairwise.wilcox.test(imputedset_wide3$IFNg, imputedset_wide3$Group2, p.adjust.method="BH")
+
+
+# IFNb --------------------------------------------------------------------
+IFNb_nh<- ggplot(data  = imputedset_wide2, aes(x = Group, y = IFNb)) +
+  geom_boxplot(aes(fill = Group), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values=c("#FFFFFF", "#7DC579"))+
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("IFNb")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))+
+  geom_signif(annotation = formatC("p=0.06", digits = 1), y_position = 2.2, xmin = 1, xmax = 2, tip_length = c(0.0, 0.00))
+IFNb_nh
+wilcox.test(IFNb ~ Group, data = imputedset_wide2)
+
+IFNb_PASC<- ggplot(data  = imputedset_wide3, aes(x = Group2, y = IFNb)) +
+  geom_boxplot(aes(fill = Group2), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group2), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values = c("#960000", "#595959", "#d49611")) +
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("IFNb")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 2.2, xmin = 1, xmax = 1.8, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2.4, xmin = 1, xmax = 3, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 2.2, xmin = 2.2, xmax = 3, tip_length = c(0.00, 0.00))
+IFNb_PASC
+
+kruskal.test(IFNb ~ Group2, data = imputedset_wide3)
+pairwise.wilcox.test(imputedset_wide3$IFNb, imputedset_wide3$Group2, p.adjust.method="BH")
+
+# IFNa2a --------------------------------------------------------------------
+IFNa2a_nh<- ggplot(data  = imputedset_wide2, aes(x = Group, y = IFNa2a)) +
+  geom_boxplot(aes(fill = Group), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values=c("#FFFFFF", "#7DC579"))+
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("IFNa2a")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2, xmin = 1, xmax = 2, tip_length = c(0.0, 0.0))
+IFNa2a_nh
+kruskal.test(IFNa2a ~ Group, data = imputedset_wide2)
+
+IFNa2a_PASC<- ggplot(data  = imputedset_wide3, aes(x = Group2, y = IFNa2a)) +
+  geom_boxplot(aes(fill = Group2), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group2), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values = c("#960000", "#595959", "#d49611")) +
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("IFNa2a")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))+
+  geom_signif(annotation = formatC("p=0.05", digits = 1), y_position = 1.7, xmin = 1, xmax = 1.8, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2, xmin = 1, xmax = 3, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 1.7, xmin = 2.2, xmax = 3, tip_length = c(0.00, 0.00))
+IFNa2a_PASC
+
+kruskal.test(IFNa2a ~ Group2, data = imputedset_wide3)
+pairwise.wilcox.test(imputedset_wide3$IFNa2a, imputedset_wide3$Group2, p.adjust.method="BH")
+
+
+# TAU --------------------------------------------------------------------
+TAU_nh<- ggplot(data  = imputedset_wide2, aes(x = Group, y = TAU)) +
+  geom_boxplot(aes(fill = Group), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values=c("#FFFFFF", "#7DC579"))+
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("TAU")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2.1, xmin = 1, xmax = 2, tip_length = c(0.0, 0.0))
+TAU_nh
+kruskal.test(TAU ~ Group, data = imputedset_wide2)
+
+TAU_PASC<- ggplot(data  = imputedset_wide3, aes(x = Group2, y = TAU)) +
+  geom_boxplot(aes(fill = Group2), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group2), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values = c("#960000", "#595959", "#d49611")) +
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("TAU")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2.1, xmin = 1, xmax = 1.8, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 2.1, xmin = 2, xmax = 3, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 2.3, xmin = 1, xmax = 3, tip_length = c(0.00, 0.00))
+TAU_PASC
+
+
+kruskal.test(TAU ~ Group2, data = imputedset_wide3)
+pairwise.wilcox.test(imputedset_wide3$TAU, imputedset_wide3$Group2, p.adjust.method="BH")
+
+# NFL --------------------------------------------------------------------
+NFL_nh<- ggplot(data  = imputedset_wide2, aes(x = Group, y = NFL)) +
+  geom_boxplot(aes(fill = Group), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values=c("#FFFFFF", "#7DC579"))+
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("NFL")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100, 1000), labels = c("0.001", "0.01", "0.1", "1", "10", "100", "1000"))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 3.1, xmin = 1, xmax = 2, tip_length = c(0.0, 0.))
+NFL_nh
+kruskal.test(NFL ~ Group, data = imputedset_wide2)
+
+NFL_PASC<- ggplot(data  = imputedset_wide3, aes(x = Group2, y = NFL)) +
+  geom_boxplot(aes(fill = Group2), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group2), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values = c("#960000", "#595959", "#d49611")) +
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("NFL")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100, 1000), labels = c("0.001", "0.01", "0.1", "1", "10", "100", "1000"))+
+  geom_signif(annotation = formatC("**", digits = 1), y_position = 2.8, xmin = 1, xmax = 1.8, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("**", digits = 1), y_position = 2.8, xmin = 2.2, xmax = 3, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("**", digits = 1), y_position = 3.1, xmin = 1, xmax = 3, tip_length = c(0.00, 0.00))
+NFL_PASC
+
+kruskal.test(NFL ~ Group2, data = imputedset_wide3)
+pairwise.wilcox.test(imputedset_wide3$NFL, imputedset_wide3$Group2, p.adjust.method="BH")
+
+
+# GFAP --------------------------------------------------------------------
+GFAP_nh<- ggplot(data  = imputedset_wide2, aes(x = Group, y = GFAP)) +
+  geom_boxplot(aes(fill = Group), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values=c("#FFFFFF", "#7DC579"))+
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("GFAP")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 2.1, xmin = 1, xmax = 2, tip_length = c(0.0, 0.0))
+GFAP_nh
+
+kruskal.test(GFAP ~ Group, data = imputedset_wide2)
+
+
+GFAP_PASC<- ggplot(data  = imputedset_wide3, aes(x = Group2, y = GFAP)) +
+  geom_boxplot(aes(fill = Group2), width = 0.6, position = position_dodge(width = 0.7), outlier.shape = NA) +
+  geom_point(aes(fill = Group2), size = 5,  alpha = 0.7, shape = 21, position = position_jitter(width = 0.05)) +
+  scale_fill_manual(values = c("#960000", "#595959", "#d49611")) +
+  theme_bw() + 
+  theme(aspect.ratio = 1.5/1) + 
+  ggtitle("GFAP")+
+  theme(plot.title = element_text(hjust = 0.5, size = 12))+
+  theme(legend.position = "bottom", axis.title.x = element_blank(), panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
+  theme(plot.background = element_blank(),panel.grid.major = element_blank(),  panel.grid.minor = element_blank(),  panel.border = element_blank()) +
+    theme(axis.line = element_line(color = 'black'))+   theme(axis.text = element_text(color = "black"))+
+  theme(axis.text = element_text(color = "black"))+
+  scale_y_log10(breaks = c(0.001, 0.01, 0.1, 1, 10, 100), labels = c("0.001", "0.01", "0.1", "1", "10", "100"))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 2, xmin = 1, xmax = 1.8, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("*", digits = 1), y_position = 2.3, xmin = 1, xmax = 3, tip_length = c(0.00, 0.00))+
+  geom_signif(annotation = formatC("ns", digits = 1), y_position = 2, xmin = 2.2, xmax = 3, tip_length = c(0.00, 0.00))
+GFAP_PASC
+
+kruskal.test(GFAP ~ Group2, data = imputedset_wide3)
+pairwise.wilcox.test(imputedset_wide3$GFAP, imputedset_wide3$Group2, p.adjust.method="BH")
+
+
+
