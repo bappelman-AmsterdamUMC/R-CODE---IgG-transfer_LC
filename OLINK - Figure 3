@@ -1,0 +1,466 @@
+
+# PLS-DA ------------------------------------------------------------------
+PATH_pca <- paste0(PATH, "PCA/")
+PATH_pls <- paste0(PATH, "PLSDA/")
+pMAT <- MAT[,smp] %>% t %>% as.data.frame()
+sscol <- c("Gr" = "#626160", "Yl" = "#BFBE03", "Rd" = "#9F1C1B")
+
+## PLS-DA
+PLS <- mixOmics::splsda(X = pMAT, Y = subset, ncomp = 5)
+loading <- PLS[["loadings"]][["X"]] %>% as.data.frame()
+subsetcenter <- PLS[["loadings"]][["Y"]] %>% as.data.frame()
+write.csv(loading, file = paste0(PATH_pls, "loading.csv"))
+
+## PLS-DA plot with background
+library(mixOmics)
+background <- background.predict(PLS, comp.predicted = 2, dist = "max.dist") 
+p <- plotIndiv(PLS, ind.names = F, legend = T, ellipse = F, star = T, pch = 16, 
+               col.per.group = sscol[unique(subset) %>% sort], 
+               group = subset, levels = unique(subset),
+               title = "PLS-DA", background = background, comp = c(1,2))
+lab_x <- PLS$prop_expl_var$X[1] %>% as.numeric
+lab_x <- paste0("component 1 (", round(lab_x*100, digits = 1), "%)")
+
+lab_y <- PLS$prop_expl_var$X[2] %>% as.numeric
+lab_y <- paste0("component 2 (", round(lab_y*100, digits = 1), "%)")
+
+p <- p[["graph"]]
+p <- p + geom_point(size = 7.5, alpha = 0.5) +
+  labs(x = lab_x, y = lab_y)+
+  theme_bw()+
+  theme(plot.background = element_blank(), 
+        panel.background = element_blank(), 
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_blank(),
+        aspect.ratio = 1,
+        legend.position = "right",
+        axis.ticks = element_blank(),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 13),
+        plot.title = element_text(size = 18, hjust = 0.5))+
+  guides(colour = guide_legend(title = "subset"))
+p
+
+ggsave(p, filename = paste0(PATH_pls, "PLSDA.pdf"), width = 5, height = 4)
+rm(lab_x, lab_y, p) 
+
+
+## PLS-DA plot without background
+p <-  plotIndiv(PLS, ind.names = F, legend = T, ellipse = T, star = T, pch = 16, col.per.group =  sscol[unique(subset) %>% sort], 
+                group = subset, levels = unique(subset),
+                title = "fine-tuned PLS-DA", comp = c(1, 2))
+lab_x <- PLS$prop_expl_var$X[1] %>% as.numeric
+lab_x <- paste0("component 1 (", round(lab_x*100, digits = 1), "%)")
+
+lab_y <- PLS$prop_expl_var$X[2] %>% as.numeric
+lab_y <- paste0("component 2 (", round(lab_y*100, digits = 1), "%)")
+
+p <- p[["graph"]]
+p <- p + geom_point(size = 7.5, alpha = 0.5) +
+  labs(x = lab_x, y = lab_y)+
+  theme_bw()+
+  theme(plot.background = element_blank(), 
+        panel.background = element_blank(),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        legend.key = element_blank(),
+        strip.background = element_blank(),
+        strip.text = element_blank(),
+        aspect.ratio = 1,
+        legend.position = "right",
+        axis.ticks = element_blank(),
+        axis.text = element_text(size = 10),
+        axis.title = element_text(size = 13),
+        plot.title = element_text(size = 18, hjust = 0.5))
+p
+ggsave(p, filename = paste0(PATH_pls, "PLS_PC1vsPC2.pdf"), width = 5, height = 4)
+rm(lab_x, lab_y, p)
+
+
+
+
+
+# PC1 GO analysis ------------------------------------------------------------
+loading$PC_ID <- rownames(loading)
+loading2 <- loading
+loading2 <- merge(loading2, Ft, by.x = "PC_ID", by.y = "Assay")
+loading2$PC_ID
+
+
+
+
+
+rownames(Ft) <- Ft$Assay
+BG <- Ft$Entrez %>% as.character()
+test <- filter(loading, loading$comp1<0)
+test2 <- merge(test, Ft, by.x = "PC_ID", by.y = "Assay")
+v_gene <- as.character(test2$Entrez)
+
+GoTerms <- clusterProfiler::enrichGO(gene = v_gene, universe = BG, 
+                                     OrgDb = "org.Hs.eg.db",
+                                     ont = "ALL",
+                                     pAdjustMethod = "BH", 
+                                     #qvalueCutoff = 0.1,
+                                     pool = T, 
+                                     qvalueCutoff = 0.05,
+                                     pvalueCutoff = 0.05)
+
+GoTerms_GO_PC1_DOWN <- GoTerms@result %>% as.data.frame
+GoTerms_GO_PC1_DOWN$direction <- "neg"
+write.csv(GoTerms_GO_PC1_DOWN, file =  paste0(PATH_pca, "GO_PC1_down.csv"), row.names = F)
+
+#UP
+BG <- Ft$Entrez %>% as.character()
+test <- filter(loading, loading$comp1>0)
+test2 <- merge(test, Ft, by.x = "PC_ID", by.y = "Assay")
+v_gene <- as.character(test2$Entrez)
+GoTerms <- clusterProfiler::enrichGO(gene = v_gene, universe = BG, 
+                                     OrgDb = "org.Hs.eg.db",
+                                     ont = "ALL",
+                                     pAdjustMethod = "BH", 
+                                     #qvalueCutoff = 0.1,
+                                     pool = T, 
+                                     qvalueCutoff = 0.05,
+                                     pvalueCutoff = 0.05)
+
+GoTerms_GO_PC1_UP <- GoTerms@result %>% as.data.frame
+GoTerms_GO_PC1_UP$direction <- "pos"
+write.csv(GoTerms_GO_PC1_UP, file =  paste0(PATH_pca, "GO_PC1_up.csv"), row.names = F)
+
+pos <- read.csv(file =  paste0(PATH_pca, "GO_PC1_up.csv"))
+neg <- read.csv(file =  paste0(PATH_pca, "GO_PC1_down.csv"))
+ptab <- rbind(pos, neg)
+rm(pos, neg)
+
+
+ptab <- ptab[order(ptab$pvalue, decreasing = F),]
+
+bartab <- rbind(head(ptab[ptab$direction == "pos",], n = 10),
+                head(ptab[ptab$direction == "neg",], n = 10))
+
+bartab$q <- -log(bartab$qvalue, base = 10)
+bartab$pathway <- paste0(bartab$Description, " (", bartab$ID, ")")
+
+# #avoid duplicated names
+bartab$pathway[1] <- paste0(" ", bartab$pathway[1])
+
+
+bartab <- bartab[,c("direction", "pathway", "q")]
+bartab$pathway <- factor(bartab$pathway,levels = rev(bartab$pathway)) 
+bartab <- bartab %>% group_by(direction) %>% mutate(qalpha = q/max(q, na.rm = T)) 
+
+p <- ggplot(bartab) + 
+  geom_vline(xintercept = -log10(0.05), alpha = 0.5, col = "#C0C0C0")+
+  geom_bar(aes(y = pathway, x = q, fill = direction, alpha = qalpha), 
+           stat = "identity", width = 0.6)+
+  scale_fill_manual(values = c(pos = "#e07204", neg = "#1c8038"), 
+                    labels = c("Negative", "Positive"))+
+  #scale_alpha_continuous(range = c(0.3, 12), guide = "none")+
+  scale_alpha_continuous(range = c(0.2, 1.3), name = "NES")+
+  scale_x_continuous(expand = c(0, 0), limit = c(0, max(bartab$q)*1.25))+
+  #scale_color_manual(values = c("sig" = "#000000", ns = "#C0C0C0"), name = "stats")+
+  labs(x = expression(paste("-",log[10],"(", italic(q)," value)")), y = "")+
+  ggtitle("enriched pathways in  ") +
+  ggtitle("COMP1") +
+  theme_classic()+
+  theme(plot.background = element_blank(),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        #legend.key = element_blank(),
+        #legend.title = element_blank(),
+        # legend.position = c(0.75, 1.5/nrow(bartab)),
+        legend.text = element_text(size = 8),
+        aspect.ratio = nrow(bartab)/4.5,
+        axis.text.x = element_text(size = 8), 
+        axis.title.x = element_text(size = 9), 
+        axis.line.y = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.title = element_text(hjust = 1.5, size =12, face = "bold"),
+        panel.border = element_blank())
+p
+
+ggsave(p, filename = paste0(PATH, "GO_PC1V2.pdf"), width = 12, height = 6)
+
+
+
+
+# PC2 GO analysis ------------------------------------------------------------
+test <- filter(loading, loading$comp2<0)
+test2 <- merge(test, Ft, by.x = "PC_ID", by.y = "Assay")
+v_gene <- as.character(test2$Entrez)
+
+GoTerms <- clusterProfiler::enrichGO(gene = v_gene, universe = BG, 
+                                     OrgDb = "org.Hs.eg.db",
+                                     ont = "ALL",
+                                     pAdjustMethod = "BH", 
+                                     #qvalueCutoff = 0.1,
+                                     pool = T, 
+                                     qvalueCutoff = 0.05,
+                                     pvalueCutoff = 0.05)
+
+GoTerms_GO_PC2_DOWN <- GoTerms@result %>% as.data.frame
+GoTerms_GO_PC2_DOWN$direction <- "neg"
+write.csv(GoTerms_GO_PC2_DOWN, file =  paste0(PATH_pca, "GO_PC2_down.csv"), row.names = F)
+
+
+#UP
+test <- filter(loading, loading$comp2>0)
+test2 <- merge(test, Ft, by.x = "PC_ID", by.y = "Assay")
+v_gene <- as.character(test2$Entrez)
+
+
+
+GoTerms <- clusterProfiler::enrichGO(gene = v_gene, universe = BG, 
+                                     OrgDb = "org.Hs.eg.db",
+                                     ont = "ALL",
+                                     pAdjustMethod = "BH", 
+                                     #qvalueCutoff = 0.1,
+                                     pool = T, 
+                                     qvalueCutoff = 0.05,
+                                     pvalueCutoff = 0.05)
+
+GoTerms_GO_PC2_UP <- GoTerms@result %>% as.data.frame
+GoTerms_GO_PC2_UP$direction <- "pos"
+write.csv(GoTerms_GO_PC2_UP, file =  paste0(PATH_pca, "GO_PC2_up.csv"), row.names = F)
+
+pos <- read.csv(file =  paste0(PATH_pca, "GO_PC2_up.csv"))
+neg <- read.csv(file =  paste0(PATH_pca, "GO_PC2_down.csv"))
+ptab <- rbind(pos, neg)
+rm(pos, neg)
+
+
+ptab <- ptab[order(ptab$pvalue, decreasing = F),]
+bartab <- rbind(head(ptab[ptab$direction == "pos",], n = 10),
+                head(ptab[ptab$direction == "neg",], n = 10))
+
+
+
+bartab$q <- -log(bartab$qvalue, base = 10)
+#bartab <- filter(bartab, bartab$qvalue <0.05)
+
+bartab$pathway <- paste0(bartab$Description, " (", bartab$ID, ")")
+
+# #avoid duplicated names
+bartab$pathway[1] <- paste0(" ", bartab$pathway[1])
+
+
+bartab <- bartab[,c("direction", "pathway", "q")]
+bartab$pathway <- factor(bartab$pathway,levels = rev(bartab$pathway)) 
+bartab <- bartab %>% group_by(direction) %>% mutate(qalpha = q/max(q, na.rm = T)) 
+
+
+
+p <- ggplot(bartab) + 
+  geom_vline(xintercept = -log10(0.05), alpha = 0.5, col = "#C0C0C0")+
+  geom_bar(aes(y = pathway, x = q, fill = direction, alpha = qalpha), 
+           stat = "identity", width = 0.6)+
+  scale_fill_manual(values = c(pos = "#e07204", neg = "#1c8038"), 
+                    labels = c("Negative", "Positive"))+
+  #scale_alpha_continuous(range = c(0.3, 12), guide = "none")+
+  scale_alpha_continuous(range = c(0.2, 1.3), name = "NES")+
+  scale_x_continuous(expand = c(0, 0), limit = c(0, max(bartab$q)*1.25))+
+  #scale_color_manual(values = c("sig" = "#000000", ns = "#C0C0C0"), name = "stats")+
+  labs(x = expression(paste("-",log[10],"(", italic(q)," value)")), y = "")+
+  ggtitle("enriched pathways in  ") +
+  ggtitle("COMP2") +
+  theme_classic()+
+  theme(plot.background = element_blank(),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        #legend.key = element_blank(),
+        #legend.title = element_blank(),
+        # legend.position = c(0.75, 1.5/nrow(bartab)),
+        legend.text = element_text(size = 8),
+        aspect.ratio = nrow(bartab)/4.5,
+        axis.text.x = element_text(size = 8), 
+        axis.title.x = element_text(size = 9), 
+        axis.line.y = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.title = element_text(hjust = 1.5, size =12, face = "bold"),
+        panel.border = element_blank())
+p
+
+ggsave(p, filename = paste0(PATH, "GO_PC2V2.pdf"), width = 12, height = 6)
+rm(bartab, ptab, p)
+
+
+
+
+################ GSEA PC1################
+tab <- loading[,1:5]
+
+grank <- tab[, "comp1"]
+grank <- as.numeric(grank)
+names(grank) <- rownames(tab)
+grank_no_na <- na.omit(grank)
+
+
+gres <- fgseaMultilevel(pathways = gs_list, stats =  grank_no_na, 
+                        nPermSimple = 10000, minSize = 10, 
+                        gseaParam = 1, eps = 1e-25) %>% as.data.frame
+gres <- gres[order(gres$pval, decreasing = F),] %>% .[1:min(100, nrow(gres), na.rm = T),]
+gres2 <- gres
+
+
+gres2$Ontology <- sub("^(.*?)_.*$", "\\1", gres2$pathway)
+
+# Optionally, remove the extracted part from the original column
+gres2$pathway <- sub("^[^_]*_", "", gres2$pathway)
+gres2$Ontology <- gsub("^GO", "GO-", gres2$Ontology)
+gres2$direction <- ifelse(gres2$NES <0, "Negative", "Positive")
+#write.csv(gres2, file =  paste0(PATH_pls, "GSEA/comp1.csv"), row.names = F)
+ptab<- gres2
+
+
+
+ptab <- ptab[order(ptab$pval, decreasing = F),]
+bartab <- rbind(head(ptab[ptab$direction == "Positive",], n = 10),
+                head(ptab[ptab$direction == "Negative",], n = 10))
+
+
+
+bartab$q <- -log(bartab$pval, base = 10)
+bartab$pathway <- paste0(bartab$pathway, " (", bartab$Ontology, ")")
+bartab$pathway <- gsub("_", " ", bartab$pathway)
+
+
+
+# #avoid duplicated names
+bartab$pathway[1] <- paste0(" ", bartab$pathway[1])
+
+
+bartab <- bartab[,c("direction", "pathway", "q")]
+bartab$pathway <- factor(bartab$pathway,levels = rev(bartab$pathway)) 
+bartab <- bartab %>% group_by(direction) %>% mutate(qalpha = q/max(q, na.rm = T)) 
+
+p <- ggplot(bartab) + 
+  geom_vline(xintercept = -log10(0.05), alpha = 0.5, col = "#C0C0C0")+
+  geom_bar(aes(y = pathway, x = q, fill = direction, alpha = qalpha), 
+           stat = "identity", width = 0.6)+
+  scale_fill_manual(values = c(Positive = "#e07204", Negative = "#1c8038"), 
+                    labels = c("Negative", "Positive"))+
+  #scale_alpha_continuous(range = c(0.3, 12), guide = "none")+
+  scale_alpha_continuous(range = c(0.2, 1.3), name = "NES")+
+  scale_x_continuous(expand = c(0, 0), limit = c(0, max(bartab$q)*1.25))+
+  #scale_color_manual(values = c("sig" = "#000000", ns = "#C0C0C0"), name = "stats")+
+  labs(x = expression(paste("-",log[10],"(", italic(q)," value)")), y = "")+
+  ggtitle("enriched pathways in  ") +
+  ggtitle("COMP1 GSEA") +
+  theme_classic()+
+  theme(plot.background = element_blank(),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        #legend.key = element_blank(),
+        #legend.title = element_blank(),
+        # legend.position = c(0.75, 1.5/nrow(bartab)),
+        legend.text = element_text(size = 8),
+        aspect.ratio = nrow(bartab)/4.5,
+        axis.text.x = element_text(size = 8), 
+        axis.title.x = element_text(size = 9), 
+        axis.line.y = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.title = element_text(hjust = 1.5, size =12, face = "bold"),
+        panel.border = element_blank())
+p
+
+ggsave(p, filename = paste0(PATH, "GSEA_PC1.pdf"), width = 12, height = 6)
+rm(bartab, ptab)
+
+
+################ GSEA PC2 ################
+tab <- loading[,1:5]
+
+grank <- tab[, "comp2"]
+grank <- as.numeric(grank)
+names(grank) <- rownames(tab)
+grank_no_na <- na.omit(grank)
+
+
+gres <- fgseaMultilevel(pathways = gs_list, stats =  grank_no_na, 
+                        nPermSimple = 10000, minSize = 10, 
+                        gseaParam = 1, eps = 1e-25) %>% as.data.frame
+gres <- gres[order(gres$pval, decreasing = F),] %>% .[1:min(100, nrow(gres), na.rm = T),]
+gres2 <- gres
+
+
+gres2$Ontology <- sub("^(.*?)_.*$", "\\1", gres2$pathway)
+
+# Optionally, remove the extracted part from the original column
+gres2$pathway <- sub("^[^_]*_", "", gres2$pathway)
+gres2$Ontology <- gsub("^GO", "GO-", gres2$Ontology)
+gres2$direction <- ifelse(gres2$NES <0, "Negative", "Positive")
+#write.csv(gres, file =  paste0(PATH_pls, "GSEA/comp2.csv"), row.names = F)
+ptab<- gres2
+
+
+
+ptab <- ptab[order(ptab$pval, decreasing = F),]
+bartab <- rbind(head(ptab[ptab$direction == "Positive",], n = 10),
+                head(ptab[ptab$direction == "Negative",], n = 10))
+
+
+
+bartab$q <- -log(bartab$pval, base = 10)
+bartab$pathway <- paste0(bartab$pathway, " (", bartab$Ontology, ")")
+bartab$pathway <- gsub("_", " ", bartab$pathway)
+
+
+
+# #avoid duplicated names
+bartab$pathway[1] <- paste0(" ", bartab$pathway[1])
+
+
+bartab <- bartab[,c("direction", "pathway", "q")]
+bartab$pathway <- factor(bartab$pathway,levels = rev(bartab$pathway)) 
+bartab <- bartab %>% group_by(direction) %>% mutate(qalpha = q/max(q, na.rm = T)) 
+
+p2 <- ggplot(bartab) + 
+  geom_vline(xintercept = -log10(0.05), alpha = 0.5, col = "#C0C0C0")+
+  geom_bar(aes(y = pathway, x = q, fill = direction, alpha = qalpha), 
+           stat = "identity", width = 0.6)+
+  scale_fill_manual(values = c(Positive = "#e07204", Negative = "#1c8038"), 
+                    labels = c("Negative", "Positive"))+
+  #scale_alpha_continuous(range = c(0.3, 12), guide = "none")+
+  scale_alpha_continuous(range = c(0.2, 1.3), name = "NES")+
+  scale_x_continuous(expand = c(0, 0), limit = c(0, max(bartab$q)*1.25))+
+  #scale_color_manual(values = c("sig" = "#000000", ns = "#C0C0C0"), name = "stats")+
+  labs(x = expression(paste("-",log[10],"(", italic(q)," value)")), y = "")+
+  ggtitle("enriched pathways in  ") +
+  ggtitle("COMP2 GSEA") +
+  theme_classic()+
+  theme(plot.background = element_blank(),
+        legend.background = element_blank(),
+        legend.box.background = element_blank(),
+        #legend.key = element_blank(),
+        #legend.title = element_blank(),
+        # legend.position = c(0.75, 1.5/nrow(bartab)),
+        legend.text = element_text(size = 8),
+        aspect.ratio = nrow(bartab)/4.5,
+        axis.text.x = element_text(size = 8), 
+        axis.title.x = element_text(size = 9), 
+        axis.line.y = element_blank(),
+        axis.text.y = element_text(size = 10),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        plot.title = element_text(hjust = 1.5, size =12, face = "bold"),
+        panel.border = element_blank())
+p2
+
+ggsave(p2, filename = paste0(PATH, "GSEA_PC2.pdf"), width = 12, height = 6)
+rm(bartab, ptab)
+
+ggarrange(p, p2, ncol = 2, nrow = 1, common.legend = F, legend = "none") -> vol
+vol1 <- annotate_figure(vol, top = text_grob("", face = "bold", size = 15))
+vol1
+ggsave(filename = paste0(PATH, "GSEA.pdf"),  width = 30, height = 20, units = "cm", dpi=900)
+
+
+
